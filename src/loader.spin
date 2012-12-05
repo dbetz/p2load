@@ -33,7 +33,13 @@ DAT
 
                         org
                         
-                        reps    #$1F6-(@reserves>>2),#1      'clear reserves
+                        jmp     #init
+                        
+' these values will be patched by the loader based on user options
+freq                    long    CLOCK_FREQ
+period                  long    CLOCK_FREQ / BAUD
+                        
+init                    reps    #$1F6-(@reserves>>2),#1      'clear reserves
                         setinda reserves
                         mov     inda++,#0
         
@@ -208,8 +214,6 @@ rx_task         chkspb                  wz      'if start or rollover, reset hea
 rx_pin          long    SERIAL_RX
 tx_pin          long    SERIAL_TX
 dirc_mask       long    1 << (SERIAL_TX - 64)
-period          long    CLOCK_FREQ / BAUD
-freq            long    CLOCK_FREQ
 base_addr       long    BASE
 zero            long    0
 word_mask       long    $ffff

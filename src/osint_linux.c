@@ -89,18 +89,19 @@ int serial_find(const char* prefix, int (*check)(const char* port, void* data), 
 
 static void sigint_handler(int signum)
 {
-        serial_done();
+    serial_done();
+    exit(1);
 }
 
 /**
  * open serial port
  * @param port - COMn port name
- * @returns hSerial - file handle to serial port
+ * @param baud - baud rate
+ * @returns 1 for success and 0 for failure
  */
 int serial_init(const char* port, unsigned long baud)
 {
     struct termios sparm;
-    int tbaud = 0;
 
     /* open the port */
 #ifdef MACOSX
@@ -121,6 +122,51 @@ int serial_init(const char* port, unsigned long baud)
         close(hSerial);
         return 0;
     }
+
+    fcntl(hSerial, F_SETFL, 0);
+    
+    /* set the baud rate */
+    if (!serial_baud(baud)) {
+        close(hSerial);
+        return 0;
+    }
+
+    /* get the current options */
+    chk("tcgetattr", tcgetattr(hSerial, &old_sparm));
+    sparm = old_sparm;
+    
+    /* set raw input */
+#ifdef MACOSX
+    cfmakeraw(&sparm);
+    sparm.c_cc[VTIME] = 0;
+    sparm.c_cc[VMIN] = 1;
+#else
+    memset(&sparm, 0, sizeof(sparm));
+    sparm.c_cflag     = CS8 | CLOCAL | CREAD;
+    sparm.c_lflag     = 0; // &= ~(ICANON | ECHO | ECHOE | ISIG);
+    sparm.c_oflag     = 0; // &= ~OPOST;
+
+    sparm.c_iflag     = IGNPAR | IGNBRK;
+    sparm.c_cc[VTIME] = 0;
+    sparm.c_cc[VMIN] = 1;
+#endif
+
+    /* set the options */
+    chk("tcflush", tcflush(hSerial, TCIFLUSH));
+    chk("tcsetattr", tcsetattr(hSerial, TCSANOW, &sparm));
+
+    return 1;
+}
+
+/**
+ * change the baud rate of the serial port
+ * @param baud - baud rate
+ * @returns 1 for success and 0 for failure
+ */
+int serial_baud(unsigned long baud)
+{
+    struct termios sparm;
+    int tbaud = 0;
 
     switch(baud) {
         case 0: // default
@@ -182,28 +228,14 @@ int serial_init(const char* port, unsigned long baud)
             exit(2);
             break;
     }
-
-    fcntl(hSerial, F_SETFL, 0);
-
+    
     /* get the current options */
-    chk("tcgetattr", tcgetattr(hSerial, &old_sparm));
-    sparm = old_sparm;
+    chk("tcgetattr", tcgetattr(hSerial, &sparm));
     
     /* set raw input */
 #ifdef MACOSX
-        cfmakeraw(&sparm);
-        sparm.c_cc[VTIME] = 0;
-        sparm.c_cc[VMIN] = 1;
-        chk("cfsetspeed", cfsetspeed(&sparm, tbaud));
+    chk("cfsetspeed", cfsetspeed(&sparm, tbaud));
 #else
-    memset(&sparm, 0, sizeof(sparm));
-    sparm.c_cflag     = CS8 | CLOCAL | CREAD;
-    sparm.c_lflag     = 0; // &= ~(ICANON | ECHO | ECHOE | ISIG);
-    sparm.c_oflag     = 0; // &= ~OPOST;
-
-    sparm.c_iflag     = IGNPAR | IGNBRK;
-    sparm.c_cc[VTIME] = 0;
-    sparm.c_cc[VMIN] = 1;
     chk("cfsetispeed", cfsetispeed(&sparm, tbaud));
     chk("cfsetospeed", cfsetospeed(&sparm, tbaud));
 #endif
@@ -211,7 +243,7 @@ int serial_init(const char* port, unsigned long baud)
     /* set the options */
     chk("tcflush", tcflush(hSerial, TCIFLUSH));
     chk("tcsetattr", tcsetattr(hSerial, TCSANOW, &sparm));
-
+    
     return 1;
 }
 

@@ -34,6 +34,7 @@
 #endif
 
 /* defaults */
+#define CLOCK_FREQ  60000000
 #define BAUD_RATE   115200
 #define PKTMAXLEN   1024
 
@@ -50,6 +51,13 @@ enum {
     CHECK_PORT_OPEN_FAILED,
     CHECK_PORT_NO_PROPELLER
 };
+
+/* second-stage loader header structure */
+typedef struct {
+    uint32_t jmpinit;
+    uint32_t clkfreq;
+    uint32_t period; // clkfreq / baudrate
+} Stage2Hdr;
 
 /* globals */
 static uint8_t txbuf[1024];
@@ -86,13 +94,14 @@ static int WaitForAckNak(int timeout);
 
 int main(int argc, char *argv[])
 {
-    char actualPort[PATH_MAX], *port, *infile;
-    int baudRate, verbose, terminalMode, cnt, i;
+    char actualPort[PATH_MAX], *port, *infile, *p;
+    int baudRate, baudRate2, baudRate3, verbose, terminalMode, cnt, i;
+    Stage2Hdr *hdr = (Stage2Hdr *)loader_array;
     uint8_t packet[PKTMAXLEN];
     FILE *fp;
     
     /* initialize */
-    baudRate = BAUD_RATE;
+    baudRate = baudRate2 = baudRate3 = BAUD_RATE;
     port = infile = NULL;
     verbose = terminalMode = FALSE;
     
@@ -104,11 +113,21 @@ int main(int argc, char *argv[])
             switch(argv[i][1]) {
             case 'b':
                 if(argv[i][2])
-                    baudRate = atoi(&argv[i][2]);
+                    p = &argv[i][2];
                 else if(++i < argc)
-                    baudRate = atoi(argv[i]);
+                    p= argv[i];
                 else
                     Usage();
+                if (*p != ':')
+                    baudRate = baudRate2 = baudRate3 = atoi(p);
+                if ((p = strchr(p, ':')) != NULL) {
+                    if (*++p != ':' && *p != '\0')
+                        baudRate2 = baudRate3 = atoi(p);
+                    if ((p = strchr(p, ':')) != NULL) {
+                        if (*++p != '\0')
+                            baudRate3 = atoi(p);
+                    }
+                }
                 break;
             case 'p':
                 if(argv[i][2])
@@ -186,6 +205,10 @@ int main(int argc, char *argv[])
     
     printf("Loading '%s' on port %s\n", infile, actualPort);
     
+    /* patch the binary loader with the baud rate information */
+    hdr->clkfreq = CLOCK_FREQ;
+    hdr->period = hdr->clkfreq / baudRate;
+    
     /* download the loader binary */
     for (i = 0; i < loader_size; i += 4)
         TLong(loader_array[i]
@@ -194,6 +217,10 @@ int main(int argc, char *argv[])
             | (loader_array[i + 3] << 24));
     TComm();
     
+    /* change to the baud rate for the second-stage loader */
+    if (baudRate2 != baudRate)
+        serial_baud(baudRate2);
+
     /* wait for the loader to start */
     msleep(100);
     
@@ -209,7 +236,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     
-    /* read the binary image */
+    /* load the binary image */
     while ((cnt = fread(packet, 1, sizeof(packet), fp)) > 0) {
         if (!SendPacket(packet, cnt)) {
             printf("error: send packet failed\n");
@@ -233,6 +260,8 @@ int main(int argc, char *argv[])
     if (terminalMode) {
         printf("[ Entering terminal mode. Type ESC or Control-C to exit. ]\n");
         fflush(stdout);
+        if (baudRate3 != baudRate2)
+            serial_baud(baudRate3);
         terminal_mode(FALSE);
     }
 
