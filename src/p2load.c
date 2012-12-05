@@ -2,7 +2,8 @@
 /*
     Copyright (c) 2012, David Betz
     
-    Based on code from the Propeller II ROM loader
+    Based on code by Chip Gracey from the
+    Propeller II ROM loader
       Copyright (c) 2012, Parallax, Inc.
       
     MIT License
