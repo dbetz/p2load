@@ -10,10 +10,11 @@ CON
         LF = $0a
 
 DAT
+                byte    0[BASE]
 
                 org
 
-                reps    #$1F6-@reserves,#1      'clear reserves
+start           reps    #$1F6-@reserves+@start,#1      'clear reserves
                 setinda reserves
                 mov     inda++,#0
 
@@ -127,7 +128,7 @@ rx_task         chkspb                  wz      'if start or rollover, reset hea
 
 hello           byte    CR, LF, "Hello, Propeller II!", CR, LF, 0
                 long
-hello_addr      long    BASE + @hello
+hello_addr      long    @hello
 rx_pin          long    SERIAL_RX
 tx_pin          long    SERIAL_TX
 dirc_mask       long    1 << (SERIAL_TX - 64)

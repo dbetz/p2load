@@ -1,4 +1,4 @@
-/* p2load.c - propeller ii second-stage loader */
+/* p2load.c - propeller ii two-stage loader */
 /*
     Copyright (c) 2012, David Betz
     
@@ -32,6 +32,9 @@
 #else
   #define PORT_PREFIX ""
 #endif
+
+/* base of hub ram */
+#define BASE        0x0e80
 
 /* defaults */
 #define CLOCK_FREQ  60000000
@@ -95,7 +98,7 @@ static int WaitForAckNak(int timeout);
 int main(int argc, char *argv[])
 {
     char actualPort[PATH_MAX], *port, *infile, *p;
-    int baudRate, baudRate2, baudRate3, verbose, terminalMode, cnt, i;
+    int baudRate, baudRate2, baudRate3, verbose, strip, terminalMode, cnt, i;
     Stage2Hdr *hdr = (Stage2Hdr *)loader_array;
     uint8_t packet[PKTMAXLEN];
     FILE *fp;
@@ -103,7 +106,7 @@ int main(int argc, char *argv[])
     /* initialize */
     baudRate = baudRate2 = baudRate3 = BAUD_RATE;
     port = infile = NULL;
-    verbose = terminalMode = FALSE;
+    verbose = strip = terminalMode = FALSE;
     
     /* get the arguments */
     for(i = 1; i < argc; ++i) {
@@ -161,6 +164,9 @@ int main(int argc, char *argv[])
             case 'P':
                 ShowPorts(PORT_PREFIX);
                 break;
+            case 's':
+                strip = TRUE;
+                break;
             case 't':
                 terminalMode = TRUE;
                 break;
@@ -207,9 +213,9 @@ int main(int argc, char *argv[])
     
     /* patch the binary loader with the baud rate information */
     hdr->clkfreq = CLOCK_FREQ;
-    hdr->period = hdr->clkfreq / baudRate;
+    hdr->period = hdr->clkfreq / baudRate2;
     
-    /* download the loader binary */
+    /* download the second-stage loader binary */
     for (i = 0; i < loader_size; i += 4)
         TLong(loader_array[i]
             | (loader_array[i + 1] << 8)
@@ -227,6 +233,12 @@ int main(int argc, char *argv[])
     /* open the binary */
     if (!(fp = fopen(infile, "rb"))) {
         printf("error: can't open '%s'\n", infile);
+        return 1;
+    }
+    
+    /* strip off the space occupied by the ROM */
+    if (strip && fseek(fp, BASE, SEEK_SET) != 0) {
+        printf("error: can't skip past ROM space\n");
         return 1;
     }
     
@@ -276,6 +288,7 @@ usage: p2load\n\
          [ -b <baud> ]     baud rate (default is %d)\n\
          [ -p <port> ]     serial port (default is to auto-detect the port)\n\
          [ -P ]            list available serial ports\n\
+         [ -s ]            strip $0e80 bytes from the start of the file before loading\n\
          [ -t ]            enter terminal mode after running the program\n\
          [ -v ]            verbose output\n\
          [ -? ]            display a usage message and exit\n\

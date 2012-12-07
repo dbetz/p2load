@@ -1,6 +1,7 @@
-/* osint_cygwin.c - serial i/o routines
+/*
+ * osint_mingw.c - serial i/o routines for win32api via mingw
  *
- * Copyright (c) 2009 by John Steven Denson
+ * Copyright (c) 2011 by Steve Denson.
  * Modified in 2011 by David Michael Betz
  *
  * MIT License                                                           
@@ -27,11 +28,9 @@
 
 #include <windows.h>
 
+#include <conio.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include <termios.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include "osint.h"
 
 static HANDLE hSerial = INVALID_HANDLE_VALUE;
@@ -96,20 +95,15 @@ int serial_init(const char *port, unsigned long baud)
     timeouts.ReadIntervalTimeout = MAXDWORD;
     timeouts.ReadTotalTimeoutMultiplier = MAXDWORD;
 
-	/* setup device buffers */
-	SetupComm(hSerial, 10000, 10000);
+    /* setup device buffers */
+    SetupComm(hSerial, 10000, 10000);
 
-	/* purge any information in the buffer */
-	PurgeComm(hSerial, PURGE_TXABORT | PURGE_RXABORT | PURGE_TXCLEAR | PURGE_RXCLEAR);
+    /* purge any information in the buffer */
+    PurgeComm(hSerial, PURGE_TXABORT | PURGE_RXABORT | PURGE_TXCLEAR | PURGE_RXCLEAR);
 
     return TRUE;
 }
 
-/**
- * change the baud rate of the serial port
- * @param baud - baud rate
- * @returns 1 for success and 0 for failure
- */
 int serial_baud(unsigned long baud)
 {
     DCB state;
@@ -221,7 +215,7 @@ void hwreset(void)
     Sleep(25);
     EscapeCommFunction(hSerial, use_rts_for_reset ? CLRRTS : CLRDTR);
     Sleep(90);
-    // Purge here after reset to get rid of buffered data. Prevents "Lost HW Contact 0 f9"
+    // Purge here after reset helps to get rid of buffered data.
     PurgeComm(hSerial, PURGE_TXABORT | PURGE_RXABORT | PURGE_TXCLEAR | PURGE_RXCLEAR);
 }
 
@@ -270,67 +264,14 @@ static void ShowLastError(void)
     exit(1); // exit on error
 }
 
-/* console i/o functions for Unix/Linux courtesy of 'jazzed' */
+/* escape from terminal mode */
+#define ESC         0x1b
 
-static int console_kbhit(void)
-{
-  struct termios oldt, newt;
-  int ch;
-  int oldf;
-
-  tcgetattr(STDIN_FILENO, &oldt);
-  newt = oldt;
-  newt.c_lflag &= ~(ICANON | ECHO);
-  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-  oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
-  fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
-
-  ch = getchar();
-
-  tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-  fcntl(STDIN_FILENO, F_SETFL, oldf);
-
-  if(ch != EOF)
-  {
-    ungetc(ch, stdin);
-    return 1;
-  }
-
-  return 0;
-}
-
-static int console_getch(void)
-{
-  struct termios oldt, newt;
-  int ch;
-  int oldf;
-
-  tcgetattr(STDIN_FILENO, &oldt);
-  newt = oldt;
-  newt.c_lflag &= ~(ICANON | ECHO);
-  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-  oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
-  fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
-
-  ch = getchar();
-
-  tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-  fcntl(STDIN_FILENO, F_SETFL, oldf);
-
-  return ch;
-}
-
-static void console_putch(int ch)
-{
-    putchar(ch);
-}
-
-#define ESC     0x1b    /* escape from terminal mode */
-
-/* if "check_for_exit" is true, then
+/*
+ * if "check_for_exit" is true, then
  * a sequence EXIT_CHAR 00 nn indicates that we should exit
-*/
-#define EXIT_CHAR 0xff
+ */
+#define EXIT_CHAR   0xff
 
 void terminal_mode(int check_for_exit)
 {
@@ -342,34 +283,37 @@ void terminal_mode(int check_for_exit)
     while (continue_terminal) {
         uint8_t buf[1];
         if (rx_timeout(buf, 1, 0) != SERIAL_TIMEOUT) {
-	        if (sawexit_valid) {
-	            exitcode = buf[0];
-	            continue_terminal = 0;
-	        }
-	        else if (sawexit_char) {
-	            if (buf[0] == 0) {
-		            sawexit_valid = 1;
-		        }
-		        else {
-		            console_putch(EXIT_CHAR);
-		            console_putch(buf[0]);
-		        }
-	        }
-	        else if (check_for_exit && buf[0] == EXIT_CHAR) {
-	            sawexit_char = 1;
-	        }
-	        else {
-                console_putch(buf[0]);
-	        }
+            if (sawexit_valid) {
+                exitcode = buf[0];
+                continue_terminal = 0;
+            }
+            else if (sawexit_char) {
+                if (buf[0] == 0) {
+                    sawexit_valid = 1;
+                }
+                else {
+                    putchar(EXIT_CHAR);
+                    putchar(buf[0]);
+                    fflush(stdout);
+                }
+            }
+            else if (check_for_exit && buf[0] == EXIT_CHAR) {
+                sawexit_char = 1;
+            }
+            else {
+                putchar(buf[0]);
+                fflush(stdout);
+            }
         }
-        else if (console_kbhit()) {
-            if ((buf[0] = console_getch()) == ESC)
+        else if (kbhit()) {
+            if ((buf[0] = getch()) == ESC)
                 break;
             tx(buf, 1);
         }
     }
 
     if (check_for_exit && sawexit_valid) {
-      exit(exitcode);
+        exit(exitcode);
     }
 }
+

@@ -19,6 +19,13 @@ OSINT=osint_cygwin enumcom
 LIBS=-lsetupapi
 endif
 
+ifeq ($(OS),msys)
+CFLAGS += -DMINGW
+EXT=.exe
+OSINT=osint_mingw enumcom
+LIBS=-lsetupapi
+endif
+
 ifeq ($(OS),macosx)
 CFLAGS+=-DMACOSX
 EXT=

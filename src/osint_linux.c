@@ -206,6 +206,12 @@ int serial_baud(unsigned long baud)
         case 38400:
             tbaud = B38400;
             break;
+        case 19200:
+            tbaud = B19200;
+            break;
+        case 9600:
+            tbaud = B9600;
+            break;
         default:
             printf("Unsupported baudrate. Use ");
 #ifdef B921600
@@ -223,7 +229,7 @@ int serial_baud(unsigned long baud)
 #ifdef B230400
             printf("230400, ");
 #endif
-            printf("115200, 57600, or 38400\n");
+            printf("115200, 57600, 38400, 19200, or 9600\n");
             serial_done();
             exit(2);
             break;

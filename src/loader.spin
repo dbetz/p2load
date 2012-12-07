@@ -39,7 +39,7 @@ DAT
 freq                    long    CLOCK_FREQ
 period                  long    CLOCK_FREQ / BAUD
                         
-init                    reps    #$1F6-(@reserves>>2),#1      'clear reserves
+init                    reps    #$1F6-reserves,#1       'clear reserves
                         setinda reserves
                         mov     inda++,#0
         
