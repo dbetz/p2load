@@ -131,7 +131,7 @@ hello           byte    CR, LF, "Hello, Propeller II!", CR, LF, 0
 hello_addr      long    @hello
 rx_pin          long    SERIAL_RX
 tx_pin          long    SERIAL_TX
-dirc_mask       long    1 << (SERIAL_TX - 64)
+dirc_mask       long    1 << (64 - SERIAL_TX)
 period          long    CLOCK_FREQ / BAUD
 freq            long    CLOCK_FREQ
 

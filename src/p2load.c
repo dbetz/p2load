@@ -35,6 +35,8 @@
 
 /* base of hub ram */
 #define BASE        0x0e80
+#define COGIMAGE_LO BASE
+#define COGIMAGE_HI 0x1000
 
 /* defaults */
 #define CLOCK_FREQ  60000000
@@ -59,7 +61,8 @@ enum {
 typedef struct {
     uint32_t jmpinit;
     uint32_t clkfreq;
-    uint32_t period; // clkfreq / baudrate
+    uint32_t period;    // clkfreq / baudrate
+    uint32_t cogimage;  // address of the cog image
 } Stage2Hdr;
 
 /* globals */
@@ -101,6 +104,7 @@ int main(int argc, char *argv[])
     int baudRate, baudRate2, baudRate3, verbose, strip, terminalMode, cnt, i;
     Stage2Hdr *hdr = (Stage2Hdr *)loader_array;
     uint8_t packet[PKTMAXLEN];
+    uint32_t cogimage = COGIMAGE_LO;
     FILE *fp;
     
     /* initialize */
@@ -131,6 +135,9 @@ int main(int argc, char *argv[])
                             baudRate3 = atoi(p);
                     }
                 }
+                break;
+            case 'h':
+                cogimage = COGIMAGE_HI;
                 break;
             case 'p':
                 if(argv[i][2])
@@ -214,6 +221,7 @@ int main(int argc, char *argv[])
     /* patch the binary loader with the baud rate information */
     hdr->clkfreq = CLOCK_FREQ;
     hdr->period = hdr->clkfreq / baudRate2;
+    hdr->cogimage = cogimage;
     
     /* download the second-stage loader binary */
     for (i = 0; i < loader_size; i += 4)
@@ -286,6 +294,7 @@ static void Usage(void)
 printf("\
 usage: p2load\n\
          [ -b <baud> ]     baud rate (default is %d)\n\
+         [ -h ]            cog image is at $1000 instead of $0e80\n\
          [ -p <port> ]     serial port (default is to auto-detect the port)\n\
          [ -P ]            list available serial ports\n\
          [ -s ]            strip $0e80 bytes from the start of the file before loading\n\

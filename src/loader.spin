@@ -38,6 +38,7 @@ DAT
 ' these values will be patched by the loader based on user options
 freq                    long    CLOCK_FREQ
 period                  long    CLOCK_FREQ / BAUD
+cogimage                long    BASE
                         
 init                    reps    #$1F6-reserves,#1       'clear reserves
                         setinda reserves
@@ -133,7 +134,7 @@ updcrc                  mov     t1, crc
                         and     crc, word_mask
 updcrc_ret              ret
 
-start                   coginit base_addr, zero
+start                   coginit cogimage, zero
       'relaunch cog0 with loaded program
 
 '
