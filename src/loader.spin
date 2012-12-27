@@ -39,6 +39,7 @@ DAT
 freq                    long    CLOCK_FREQ
 period                  long    CLOCK_FREQ / BAUD
 cogimage                long    BASE
+stacktop                long    $20000
                         
 init                    reps    #$1F6-reserves,#1       'clear reserves
                         setinda reserves
@@ -134,7 +135,7 @@ updcrc                  mov     t1, crc
                         and     crc, word_mask
 updcrc_ret              ret
 
-start                   coginit cogimage, zero
+start                   coginit cogimage, stacktop
       'relaunch cog0 with loaded program
 
 '
@@ -216,7 +217,6 @@ rx_pin          long    SERIAL_RX
 tx_pin          long    SERIAL_TX
 dirc_mask       long    1 << (SERIAL_TX - 64)
 base_addr       long    BASE
-zero            long    0
 word_mask       long    $ffff
 
 crctab

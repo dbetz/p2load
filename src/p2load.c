@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <string.h>
 #include <ctype.h>
+#include "loadelf.h"
 #include "osint.h"
 
 #ifndef TRUE
@@ -63,6 +64,7 @@ typedef struct {
     uint32_t clkfreq;
     uint32_t period;    // clkfreq / baudrate
     uint32_t cogimage;  // address of the cog image
+    uint32_t stacktop;  // address of the top of stack
 } Stage2Hdr;
 
 /* globals */
@@ -79,6 +81,7 @@ extern int loader_size;
 
 /* prototypes */
 static void Usage(void);
+static void *LoadElfFile(FILE *fp, ElfHdr *hdr, int *pImageSize);
 
 static int HardwareFound(void);
 static void SerialInit(void);
@@ -101,10 +104,12 @@ static int WaitForAckNak(int timeout);
 int main(int argc, char *argv[])
 {
     char actualPort[PATH_MAX], *port, *infile, *p;
-    int baudRate, baudRate2, baudRate3, verbose, strip, terminalMode, cnt, i;
+    int baudRate, baudRate2, baudRate3, verbose, strip, terminalMode, cnt, imageSize, i;
     Stage2Hdr *hdr = (Stage2Hdr *)loader_array;
-    uint8_t packet[PKTMAXLEN];
     uint32_t cogimage = COGIMAGE_LO;
+    uint32_t stacktop = 0x20000;
+    uint8_t *imageBuf, *ptr;
+    ElfHdr elfHdr;
     FILE *fp;
     
     /* initialize */
@@ -138,6 +143,9 @@ int main(int argc, char *argv[])
                 break;
             case 'h':
                 cogimage = COGIMAGE_HI;
+                break;
+            case 'n':
+                stacktop = 0x8000;
                 break;
             case 'p':
                 if(argv[i][2])
@@ -218,10 +226,75 @@ int main(int argc, char *argv[])
     
     printf("Loading '%s' on port %s\n", infile, actualPort);
     
+    /* open the binary */
+    if (!(fp = fopen(infile, "rb"))) {
+        printf("error: can't open '%s'\n", infile);
+        return 1;
+    }
+    
+    /* check for an elf file */
+    if (ReadAndCheckElfHdr(fp, &elfHdr)) {
+        
+        /* load the elf image */
+        if (!(imageBuf = LoadElfFile(fp, &elfHdr, &imageSize))) {
+            printf("error: can't load elf file '%s'\n", infile);
+            return 1;
+        }
+        
+        /* skip over the rom image at the start */
+        ptr = imageBuf + BASE;
+        imageSize -= BASE;
+        
+        /* propgcc always creates images that start at 0x1000 */
+        cogimage = COGIMAGE_HI;
+    }
+    
+    /* load a binary file */
+    else {
+    
+        /* get the size of the binary file */
+        fseek(fp, 0, SEEK_END);
+        imageSize = (int)ftell(fp);
+    
+        /* strip off the space occupied by the ROM */
+        if (strip) {
+            if (fseek(fp, BASE, SEEK_SET) != 0) {
+                printf("error: can't skip past ROM space\n");
+                return 1;
+            }
+            if ((imageSize -= BASE) < 0) {
+                printf("error: file too small\n");
+                return 1;
+            }
+        }
+        
+        /* load the complete file */
+        else {
+            fseek(fp, 0, SEEK_SET);
+        }
+        
+        /* allocate a buffer big enough for the entire image */
+        if (!(imageBuf = (uint8_t *)malloc(imageSize))) {
+            printf("error: insufficient memory\n");
+            return 1;
+        }
+        ptr = imageBuf;
+            
+        /* read the binary file */
+        if (fread(imageBuf, 1, imageSize, fp) != imageSize) {
+            printf("error: can't load binary file '%s'\n", infile);
+            return 1;
+        }
+        
+        /* close the binary file */
+        fclose(fp);
+    }
+        
     /* patch the binary loader with the baud rate information */
     hdr->clkfreq = CLOCK_FREQ;
     hdr->period = hdr->clkfreq / baudRate2;
     hdr->cogimage = cogimage;
+    hdr->stacktop = stacktop;
     
     /* download the second-stage loader binary */
     for (i = 0; i < loader_size; i += 4)
@@ -238,18 +311,6 @@ int main(int argc, char *argv[])
     /* wait for the loader to start */
     msleep(100);
     
-    /* open the binary */
-    if (!(fp = fopen(infile, "rb"))) {
-        printf("error: can't open '%s'\n", infile);
-        return 1;
-    }
-    
-    /* strip off the space occupied by the ROM */
-    if (strip && fseek(fp, BASE, SEEK_SET) != 0) {
-        printf("error: can't skip past ROM space\n");
-        return 1;
-    }
-    
     /* wait for the loader to be ready */
     if (!WaitForInitialAck()) {
         printf("error: packet handshake failed\n");
@@ -257,24 +318,28 @@ int main(int argc, char *argv[])
     }
     
     /* load the binary image */
-    while ((cnt = fread(packet, 1, sizeof(packet), fp)) > 0) {
-        if (!SendPacket(packet, cnt)) {
+    while ((cnt = imageSize) > 0) {
+        if (cnt > PKTMAXLEN)
+            cnt = PKTMAXLEN;
+        if (!SendPacket(ptr, cnt)) {
             printf("error: send packet failed\n");
             return 1;
         }
+        ptr += cnt;
+        imageSize -= cnt;
         printf(".");
         fflush(stdout);
     }
     printf("\n");
+    
+    /* free the image buffer */
+    free(imageBuf);
         
     /* terminate the transfer and start the program */
     if (!SendPacket(NULL, 0)) {
         printf("error: send start packet failed\n");
         return 1;
     }
-    
-    /* close the binary file */
-    fclose(fp);
     
     /* enter terminal mode if requested */
     if (terminalMode) {
@@ -295,6 +360,7 @@ printf("\
 usage: p2load\n\
          [ -b <baud> ]     baud rate (default is %d)\n\
          [ -h ]            cog image is at $1000 instead of $0e80\n\
+         [ -n ]            set stack top to $8000 for the DE0-Nano\n\
          [ -p <port> ]     serial port (default is to auto-detect the port)\n\
          [ -P ]            list available serial ports\n\
          [ -s ]            strip $0e80 bytes from the start of the file before loading\n\
@@ -303,6 +369,55 @@ usage: p2load\n\
          [ -? ]            display a usage message and exit\n\
          <name>            file to load\n", BAUD_RATE);
     exit(1);
+}
+
+static void *LoadElfFile(FILE *fp, ElfHdr *hdr, int *pImageSize)
+{
+    uint32_t start, imageSize, cogImagesSize;
+    uint8_t *imageBuf, *buf;
+    ElfContext *c;
+    ElfProgramHdr program;
+    int i;
+
+    /* open the elf file */
+    if (!(c = OpenElfFile(fp, hdr)))
+        return NULL;
+        
+    /* get the total size of the program */
+    if (!GetProgramSize(c, &start, &imageSize, &cogImagesSize)) {
+        CloseElfFile(c);
+        return NULL;
+    }
+        
+    /* check to see if cog images in eeprom are allowed */
+    if (cogImagesSize > 0) {
+        CloseElfFile(c);
+        return NULL;
+    }
+    
+    /* allocate a buffer big enough for the entire image */
+    if (!(imageBuf = (uint8_t *)malloc(imageSize)))
+        return NULL;
+    memset(imageBuf, 0, imageSize);
+        
+    /* load each program section */
+    for (i = 0; i < c->hdr.phnum; ++i) {
+        if (!LoadProgramTableEntry(c, i, &program)
+        ||  !(buf = LoadProgramSegment(c, &program))) {
+            CloseElfFile(c);
+            free(imageBuf);
+            return NULL;
+        }
+        if (program.paddr < COG_DRIVER_IMAGE_BASE)
+            memcpy(&imageBuf[program.paddr - start], buf, program.filesz);
+    }
+    
+    /* close the elf file */
+    CloseElfFile(c);
+    
+    /* return the image */
+    *pImageSize = imageSize;
+    return (void *)imageBuf;
 }
 
 /* this code is adapted from Chip Gracey's PNut IDE */
