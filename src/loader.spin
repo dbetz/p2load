@@ -142,82 +142,82 @@ start                   coginit cogimage, stacktop
 '
 ' Transmit chr (x)
 '
-tx              shl     x,#1                    'insert start bit
-                setb    x,#9                    'set stop bit
+tx                      shl     x,#1                    'insert start bit
+                        setb    x,#9                    'set stop bit
 
-                getcnt  w                       'get initial time
+                        getcnt  w                       'get initial time
 
-:loop           add     w,period                'add bit period to time
-                passcnt w                       'loop until bit period elapsed
-                shr     x,#1            wc      'get next bit into c
-                setpc   tx_pin                  'write c to tx pin
-                tjnz    x,#:loop                'loop until bits done
+:loop                   add     w,period                'add bit period to time
+                        passcnt w                       'loop until bit period elapsed
+                        shr     x,#1            wc      'get next bit into c
+                        setpc   tx_pin                  'write c to tx pin
+                        tjnz    x,#:loop                'loop until bits done
 
-tx_ret          ret
+tx_ret                  ret
 
 '
 '
 ' Receive chr (x)
 '
-rx              call    #rx_check               'wait for rx chr
-        if_z    jmp     #rx
+rx                      call    #rx_check               'wait for rx chr
+               if_z     jmp     #rx
 
-rx_ret          ret
+rx_ret                  ret
 '
 '
 ' Check receiver, z=0 if chr (x)
 '
-rx_check        or      rx_tail,#$80            'if start or rollover, reset tail
+rx_check                or      rx_tail,#$80            'if start or rollover, reset tail
 
-                getspb  rx_temp         wz      'if head uninitialized, z=1
-        if_nz   cmp     rx_temp,rx_tail wz      'if head-tail mismatch, byte ready, z=0
+                        getspb  rx_temp         wz      'if head uninitialized, z=1
+              if_nz     cmp     rx_temp,rx_tail wz      'if head-tail mismatch, byte ready, z=0
 
-        if_nz   getspa  rx_temp                 'preserve spa
-        if_nz   setspa  rx_tail                 'get tail
-        if_nz   popar   x                       'get byte at tail
-        if_nz   getspa  rx_tail                 'update tail
-        if_nz   setspa  rx_temp                 'restore spa
+              if_nz     getspa  rx_temp                 'preserve spa
+              if_nz     setspa  rx_tail                 'get tail
+              if_nz     popar   x                       'get byte at tail
+              if_nz     getspa  rx_tail                 'update tail
+              if_nz     setspa  rx_temp                 'restore spa
 
-rx_check_ret    ret
+rx_check_ret            ret
 
 
 '************************
 '* Serial Receiver Task *
 '************************
 
-rx_task         chkspb                  wz      'if start or rollover, reset head
-        if_z    setspb  #$80
+rx_task                 chkspb                  wz      'if start or rollover, reset head
+                if_z    setspb  #$80
 
-                mov     rx_bits,#9              'ready for 8 data bits + 1 stop bit
+                        mov     rx_bits,#9              'ready for 8 data bits + 1 stop bit
 
-                neg     rx_time,period          'get -0.5 period
-                sar     rx_time,#1
+                        neg     rx_time,period          'get -0.5 period
+                        sar     rx_time,#1
 
-                jp      rx_pin,#$               'wait for start bit
+                        jp      rx_pin,#$               'wait for start bit
 
-                subcnt  rx_time                 'get time + 0.5 period for initial 1.5 period delay
+                        subcnt  rx_time                 'get time + 0.5 period for initial 1.5 period delay
 
-:bit            rcr     rx_data,#1              'rotate c into byte
-                add     rx_time,period          'add 1 period
-                passcnt rx_time                 'wait for center of next bit
-                getp    rx_pin          wc      'read rx pin into c
-                djnz    rx_bits,#:bit           'loop until 8 data bits + 1 stop bit received
+:bit                    rcr     rx_data,#1              'rotate c into byte
+                        add     rx_time,period          'add 1 period
+                        passcnt rx_time                 'wait for center of next bit
+                        getp    rx_pin          wc      'read rx pin into c
+                        djnz    rx_bits,#:bit           'loop until 8 data bits + 1 stop bit received
 
-                shr     rx_data,#32-8           'align byte
-                pushb   rx_data                 'store byte at head, inc head
+                        shr     rx_data,#32-8           'align byte
+                        pushb   rx_data                 'store byte at head, inc head
 
-                jmp     #rx_task                'wait for next byte
+                        jmp     #rx_task                'wait for next byte
 
 
 '*************
 '* Constants *
 '*************
 
-rx_pin          long    SERIAL_RX
-tx_pin          long    SERIAL_TX
-dirc_mask       long    1 << (SERIAL_TX - 64)
-base_addr       long    BASE
-word_mask       long    $ffff
+rx_pin                  long    SERIAL_RX
+tx_pin                  long    SERIAL_TX
+dirc_mask               long    1 << (SERIAL_TX - 64)
+base_addr               long    BASE
+word_mask               long    $ffff
 
 crctab
     word $0000,  $1021,  $2042,  $3063,  $4084,  $50a5,  $60c6,  $70e7
