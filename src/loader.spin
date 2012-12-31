@@ -298,5 +298,3 @@ rcv_cnt                 res     1
 crc                     res     1
 
                         fit     496
-
-
